@@ -1,5 +1,15 @@
 local M = {}
 
+-- Reads the hidden pane id at the start of a line. Ids are zero padded so
+-- every line has the same prefix width; "%007" is pane "%7".
+function M.id(line)
+  local digits, rest = line:match("^%s*%%(%d+)%s+(.*)$")
+  if not digits then
+    return nil, line
+  end
+  return "%" .. tonumber(digits), rest
+end
+
 -- Splits on the first n-1 separators only, so the last column may contain "|".
 local function split_cells(s, n)
   local cells, pos = {}, 1
@@ -19,8 +29,7 @@ function M.parse(lines, columns)
   local rows = {}
   for lnum, line in ipairs(lines) do
     if not line:match("^%s*$") then
-      local id, rest = line:match("^%s*(%%%d+)%s+(.*)$")
-      rest = rest or line
+      local id, rest = M.id(line)
       if rest:find("%s%%%d+%s") then
         return nil, ("line %d: more than one pane id, was it joined with J?"):format(lnum)
       end

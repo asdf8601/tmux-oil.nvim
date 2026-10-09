@@ -116,7 +116,7 @@ local function write(buf)
 end
 
 local function jump(buf)
-  local id = vim.api.nvim_get_current_line():match("^%s*(%%%d+)%s")
+  local id = parse.id(vim.api.nvim_get_current_line())
   if not id then
     return
   end
@@ -147,6 +147,18 @@ local function create()
     buffer = buf,
     callback = function()
       write(buf)
+    end,
+  })
+  -- The id is concealed but still text; keep the cursor after it so edits at
+  -- the start of the line change the target, not the id.
+  vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "ModeChanged" }, {
+    buffer = buf,
+    callback = function()
+      local prefix = vim.api.nvim_get_current_line():match("^%s*%%%d+ ")
+      local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+      if prefix and col < #prefix then
+        vim.api.nvim_win_set_cursor(0, { row, #prefix })
+      end
     end,
   })
   vim.api.nvim_create_autocmd("BufWipeout", {

@@ -52,6 +52,11 @@ function M.render(state, cfg)
     named[p.window_id] = true
   end
 
+  local id_width = 0
+  for _, p in ipairs(state.panes) do
+    id_width = math.max(id_width, #p.id - 1)
+  end
+
   local widths = {}
   for _, row in ipairs(rows) do
     for i, col in ipairs(cfg.columns) do
@@ -61,7 +66,7 @@ function M.render(state, cfg)
 
   local lines, hls = {}, {}
   for lnum, row in ipairs(rows) do
-    local line = row.id and (row.id .. " ") or ""
+    local line = row.id and ("%%%0" .. id_width .. "d "):format(tonumber(row.id:sub(2))) or ""
     for i, col in ipairs(cfg.columns) do
       local text = row.cells[col]
       if i < #cfg.columns then
