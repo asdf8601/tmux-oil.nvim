@@ -5,9 +5,11 @@ local M = {}
 --
 -- ctx.own: set of pane ids where this nvim runs.
 -- ctx.client_session: name of the session the client is attached to.
+-- ctx.client: name of that client.
 function M.compute(state, rows, ctx)
   local plan = { groups = {}, moves = {}, splits = {}, renames = {}, kills = {}, hold = {}, destroyed = {}, own = false }
   local seen, count, loses, renamed, by_key = {}, {}, {}, {}, {}
+  local last_moved
   local original = {}
   for _, p in ipairs(state.panes) do
     original[p.window_id] = (original[p.window_id] or 0) + 1
@@ -50,6 +52,7 @@ function M.compute(state, rows, ctx)
         end
       else
         lose(pane.window_id)
+        last_moved = row.id
         plan.own = plan.own or ctx.own[row.id] == true
         if win then
           table.insert(plan.moves, { id = row.id, window = win })
@@ -96,8 +99,19 @@ function M.compute(state, rows, ctx)
       table.insert(plan.destroyed, w)
     end
   end
+  -- When the client's session empties, tmux would detach the client. Follow
+  -- the last moved pane instead; with nothing moved there is nowhere to go.
   if ctx.client_session and state.sessions[ctx.client_session] and not alive[ctx.client_session] then
-    return nil, ("session %s would be destroyed and the client detached"):format(ctx.client_session)
+    if not last_moved then
+      return nil, ("session %s would be destroyed and the client detached"):format(ctx.client_session)
+    end
+    plan.follow = { pane = last_moved, client = ctx.client, session = ctx.client_session }
+    for _, w in ipairs(state.window_list) do
+      if w.session == ctx.client_session then
+        plan.follow.window = w.id
+        break
+      end
+    end
   end
 
   plan.destructive = #plan.kills > 0 or #plan.destroyed > 0
@@ -137,6 +151,9 @@ function M.describe(plan, state)
   end
   for _, w in ipairs(plan.destroyed) do
     table.insert(out, ("window %s:%d %s will be destroyed"):format(w.session, w.index, w.name))
+  end
+  if plan.follow then
+    table.insert(out, ("session %s will be destroyed, the client follows %s"):format(plan.follow.session, plan.follow.pane))
   end
   if plan.own then
     table.insert(out, "this changes the pane where nvim is running")

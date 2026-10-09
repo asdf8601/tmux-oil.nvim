@@ -155,3 +155,33 @@ with_server("apply: new session with two windows in one write", function()
     return p.session == "work"
   end, state.panes))
 end)
+
+-- A real client attached to session a, running inside a second server.
+with_server("apply: moving the client's last pane away switches the client and drops the session", function()
+  tmux.run({ "kill-session", "-t", "b" })
+  assert(tmux.run({ "new-session", "-d", "-s", "b", "-n", "three" }))
+  assert(tmux.run({ "kill-pane", "-t", "a:1.1" }))
+  assert(tmux.run({ "kill-window", "-t", "a:2" }))
+  local ui = vim.system({ "tmux", "-L", "tmux-oil-test-ui", "-f", "/dev/null", "new-session", "-d", "-x", "200", "-y", "50",
+    "env -u TMUX tmux -L tmux-oil-test attach -t a" }):wait()
+  assert(ui.code == 0, ui.stderr)
+  local ok, err = pcall(function()
+    local client = nil
+    vim.wait(3000, function()
+      client = tmux.run({ "list-clients", "-F", "#{client_name}" })
+      return client and client ~= ""
+    end, 50)
+    assert(client and client ~= "", "client did not attach")
+    local state = assert(tmux.read())
+    local lines = view.render(state, h.config)
+    table.remove(lines, 1)
+    lines[1] = lines[1]:gsub("a:1", "b:0")
+    local plan = assert(diff.compute(state, assert(parse.parse(lines, h.config.columns)), { own = {}, client_session = "a", client = client }))
+    assert(apply.apply(plan, tmux))
+    eq("b", tmux.run({ "list-clients", "-F", "#{client_session}" }))
+    eq(nil, tmux.run({ "has-session", "-t", "a" }))
+    eq(2, #vim.split(tmux.run({ "list-panes", "-t", "b:0", "-F", "#{pane_id}" }), "\n"))
+  end)
+  vim.system({ "tmux", "-L", "tmux-oil-test-ui", "kill-server" }):wait()
+  assert(ok, err)
+end)

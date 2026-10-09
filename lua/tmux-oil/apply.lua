@@ -61,7 +61,11 @@ function M.apply(plan, tmux)
     return out:match("^(%S+) (%S+)$")
   end
 
+  local anchor
   local ok, err = pcall(function()
+    if plan.follow then
+      anchor = run({ "split-window", "-d", "-t", plan.follow.window, "-P", "-F", "#{pane_id}", "cat" })
+    end
     -- A placeholder keeps each surviving window alive while its panes move
     -- around, so moves can run in any order, swaps included.
     for _, w in ipairs(plan.hold) do
@@ -103,6 +107,16 @@ function M.apply(plan, tmux)
 
   for _, pane in ipairs(trash) do
     tmux.run({ "kill-pane", "-t", pane })
+  end
+  -- One tmux call, so the old session goes away even if nvim dies with the
+  -- popup when the client switches.
+  if anchor then
+    local switch = { "switch-client", "-t", plan.follow.pane }
+    if plan.follow.client then
+      switch = { "switch-client", "-c", plan.follow.client, "-t", plan.follow.pane }
+    end
+    vim.list_extend(switch, { ";", "kill-pane", "-t", anchor })
+    tmux.run(switch)
   end
   if not ok then
     return false, err

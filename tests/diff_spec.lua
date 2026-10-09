@@ -112,9 +112,16 @@ test("diff: unknown id is an error", function()
   eq(true, err:find("unknown pane") ~= nil)
 end)
 
-test("diff: emptying the client session is refused", function()
-  local plan, err = run(two_windows(), function()
+test("diff: emptying the client session by moves follows the last moved pane", function()
+  local plan = run(two_windows(), function()
     return { "%1 b: | | | | nvim", "%2 b: | | | | zsh", "%3 b: | | | | k9s" }
+  end, { own = {}, client_session = "a", client = "/dev/ttys001" })
+  eq({ pane = "%3", client = "/dev/ttys001", session = "a", window = "@a1" }, plan.follow)
+end)
+
+test("diff: emptying the client session by kills is refused", function()
+  local plan, err = run(two_windows(), function()
+    return {}
   end, { own = {}, client_session = "a" })
   eq(nil, plan)
   eq(true, err:find("client detached") ~= nil)

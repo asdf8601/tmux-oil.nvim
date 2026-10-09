@@ -50,7 +50,11 @@ local function context(state)
   if active and state.by_id[active] then
     own[active] = true
   end
-  return { own = own, client_session = tmux.run({ "display-message", "-p", "#{session_name}" }) }
+  return {
+    own = own,
+    client_session = tmux.run({ "display-message", "-p", "#{session_name}" }),
+    client = tmux.run({ "display-message", "-p", "#{client_name}" }),
+  }
 end
 
 local function stale(old, new)
