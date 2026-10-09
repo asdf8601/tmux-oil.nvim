@@ -38,13 +38,23 @@ Every line starts with a hidden pane id. `TARGET` is `session:index`.
 Lines with the same new target form one window. `TITLE` and `CWD` are read
 only. `COMMAND` is the last column, so it may contain `|`.
 
-Changes that kill panes or destroy windows ask for confirmation first. An
-edit that would empty the session your client is attached to is refused.
+Changes that kill panes or destroy windows ask for confirmation first. When
+an edit moves the last panes out of the session your client is attached to,
+the client follows the last moved pane and the empty session goes away. An
+edit that would empty that session only by killing panes is refused.
 
 ## Keys
 
 - `<CR>` switch to the pane under the cursor
 - `R` reload from tmux, discarding edits
+- `<Tab>` / `<S-Tab>` next or previous cell, in normal and insert mode
+- `ic` text object for the cell under the cursor: `cic` changes just that cell
+- `o` / `O` new pane line in the current window, cursor in `COMMAND`
+
+Columns realign when you leave insert mode; one `u` undoes the edit and the
+realignment. While you edit, each line shows what `:w` will do with it
+(`→ new session work:`, `+ new pane`, `✎ rename window`), and the first line
+sums up what the buffer cannot show, such as killed panes.
 
 ## Popup
 

@@ -3,6 +3,7 @@ local view = require("tmux-oil.view")
 local parse = require("tmux-oil.parse")
 local diff = require("tmux-oil.diff")
 local apply = require("tmux-oil.apply")
+local edit = require("tmux-oil.edit")
 
 local M = {}
 
@@ -17,8 +18,7 @@ M.config = {
 }
 
 local NAME = "tmux-oil://"
-local ns = vim.api.nvim_create_namespace("tmux-oil")
-local snapshots = {}
+local snapshots, contexts = {}, {}
 
 local function notify(msg, level)
   vim.notify("tmux-oil: " .. msg, level or vim.log.levels.ERROR)
@@ -73,16 +73,15 @@ local function render(buf)
     return notify(err)
   end
   snapshots[buf] = state
+  contexts[buf] = context(state)
   local lines, hls = view.render(state, M.config)
   local undolevels = vim.bo[buf].undolevels
   vim.bo[buf].undolevels = -1
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].undolevels = undolevels
   vim.bo[buf].modified = false
-  vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
-  for _, h in ipairs(hls) do
-    vim.api.nvim_buf_set_extmark(buf, ns, h[1], h[2], { end_col = h[3], hl_group = h[4] })
-  end
+  edit.highlight(buf, hls)
+  edit.preview(buf, nil)
 end
 
 local function write(buf)
@@ -169,6 +168,7 @@ local function create()
     buffer = buf,
     callback = function()
       snapshots[buf] = nil
+      contexts[buf] = nil
     end,
   })
   vim.keymap.set("n", "<CR>", function()
@@ -177,6 +177,9 @@ local function create()
   vim.keymap.set("n", "R", function()
     render(buf)
   end, { buffer = buf, desc = "tmux-oil: refresh" })
+  edit.attach(buf, M.config, function()
+    return snapshots[buf], contexts[buf]
+  end)
   return buf
 end
 

@@ -6,8 +6,11 @@ local M = {}
 -- ctx.own: set of pane ids where this nvim runs.
 -- ctx.client_session: name of the session the client is attached to.
 -- ctx.client: name of that client.
+--
+-- plan.notes maps a buffer line to { text, highlight } describing what will
+-- happen to it, for the live preview.
 function M.compute(state, rows, ctx)
-  local plan = { groups = {}, moves = {}, splits = {}, renames = {}, kills = {}, hold = {}, destroyed = {}, own = false }
+  local plan = { groups = {}, moves = {}, splits = {}, renames = {}, kills = {}, hold = {}, destroyed = {}, own = false, notes = {} }
   local seen, count, loses, renamed, by_key = {}, {}, {}, {}, {}
   local last_moved
   local original = {}
@@ -49,6 +52,7 @@ function M.compute(state, rows, ctx)
         if row.name ~= "" and row.name ~= state.windows[win].name and not renamed[win] then
           renamed[win] = true
           table.insert(plan.renames, { window = win, name = row.name })
+          plan.notes[row.lnum] = { "✎ rename window", "DiagnosticWarn" }
         end
       else
         lose(pane.window_id)
@@ -56,13 +60,17 @@ function M.compute(state, rows, ctx)
         plan.own = plan.own or ctx.own[row.id] == true
         if win then
           table.insert(plan.moves, { id = row.id, window = win })
+          plan.notes[row.lnum] = { "→ " .. row.target, "DiagnosticHint" }
         else
           add_to_group(row, { id = row.id })
+          plan.notes[row.lnum] = { "→ " .. M.new_place(state, row), "DiagnosticHint" }
         end
       end
     else
       -- A new line, or a copy of an existing one (yyp keeps the hidden id).
       local member = { command = pane and "" or row.command, cwd = pane and pane.cwd }
+      local what = pane and ("+ copy of " .. row.id) or "+ new pane"
+      plan.notes[row.lnum] = { win and what or (what .. " in " .. M.new_place(state, row)), "DiagnosticOk" }
       if win then
         table.insert(plan.splits, { window = win, command = member.command, cwd = member.cwd or state.windows[win].cwd })
       else
@@ -117,6 +125,27 @@ function M.compute(state, rows, ctx)
   plan.destructive = #plan.kills > 0 or #plan.destroyed > 0
   plan.empty = #plan.groups + #plan.moves + #plan.splits + #plan.renames + #plan.kills == 0
   return plan
+end
+
+function M.new_place(state, row)
+  local key = row.session .. ":" .. (row.index or "")
+  return (state.sessions[row.session] and "new window " or "new session ") .. key
+end
+
+-- One line summing up what the buffer cannot show: deleted lines and windows
+-- or sessions that disappear.
+function M.summary(plan)
+  local parts = {}
+  if #plan.kills > 0 then
+    table.insert(parts, ("✗ %d pane%s killed"):format(#plan.kills, #plan.kills == 1 and "" or "s"))
+  end
+  if #plan.destroyed > 0 then
+    table.insert(parts, ("%d window%s destroyed"):format(#plan.destroyed, #plan.destroyed == 1 and "" or "s"))
+  end
+  if plan.follow then
+    table.insert(parts, ("client follows %s"):format(plan.follow.pane))
+  end
+  return table.concat(parts, ", ")
 end
 
 local function target(state, window)

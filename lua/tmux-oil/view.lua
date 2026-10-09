@@ -36,54 +36,58 @@ local function cells(p, first, cfg, env)
   }
 end
 
--- Returns the buffer lines and highlights as { line, start_col, end_col, group }.
-function M.render(state, cfg)
-  local env = {
-    hostname = (vim.uv.os_gethostname():gsub("%..*", "")),
-    home = vim.env.HOME or "",
-  }
-  local rows = {}
-  if cfg.header then
-    table.insert(rows, { cells = M.HEADER })
-  end
-  local named = {}
-  for _, p in ipairs(state.panes) do
-    table.insert(rows, { id = p.id, cells = cells(p, not named[p.window_id], cfg, env) })
-    named[p.window_id] = true
-  end
-
-  local id_width = 0
-  for _, p in ipairs(state.panes) do
-    id_width = math.max(id_width, #p.id - 1)
-  end
-
+-- Aligns rows into lines. A row is { prefix, cells, header } or false for a
+-- blank line. Returns the lines and highlights as { line, start_col, end_col, group }.
+function M.format(rows, columns)
   local widths = {}
   for _, row in ipairs(rows) do
-    for i, col in ipairs(cfg.columns) do
-      widths[i] = math.max(widths[i] or 0, vim.fn.strdisplaywidth(row.cells[col]))
+    if row then
+      for i, col in ipairs(columns) do
+        widths[i] = math.max(widths[i] or 0, vim.fn.strdisplaywidth(row.cells[col]))
+      end
     end
   end
 
   local lines, hls = {}, {}
   for lnum, row in ipairs(rows) do
-    local line = row.id and ("%%%0" .. id_width .. "d "):format(tonumber(row.id:sub(2))) or ""
-    for i, col in ipairs(cfg.columns) do
+    local line = row and row.prefix or ""
+    for i, col in ipairs(row and columns or {}) do
       local text = row.cells[col]
-      if i < #cfg.columns then
+      if i < #columns then
         text = text .. string.rep(" ", widths[i] - vim.fn.strdisplaywidth(text))
       end
-      local group = GROUPS[col]
-      if not row.id then
-        group = "Comment"
-      end
+      local group = row.header and "Comment" or GROUPS[col]
       if group and #text > 0 then
         table.insert(hls, { lnum - 1, #line, #line + #text, group })
       end
-      line = line .. text .. (i < #cfg.columns and " | " or "")
+      line = line .. text .. (i < #columns and " | " or "")
     end
     table.insert(lines, line)
   end
   return lines, hls
+end
+
+function M.render(state, cfg)
+  local env = {
+    hostname = (vim.uv.os_gethostname():gsub("%..*", "")),
+    home = vim.env.HOME or "",
+  }
+  local id_width = 0
+  for _, p in ipairs(state.panes) do
+    id_width = math.max(id_width, #p.id - 1)
+  end
+
+  local rows = {}
+  if cfg.header then
+    table.insert(rows, { prefix = "", cells = M.HEADER, header = true })
+  end
+  local named = {}
+  for _, p in ipairs(state.panes) do
+    local prefix = ("%%%0" .. id_width .. "d "):format(tonumber(p.id:sub(2)))
+    table.insert(rows, { prefix = prefix, cells = cells(p, not named[p.window_id], cfg, env) })
+    named[p.window_id] = true
+  end
+  return M.format(rows, cfg.columns)
 end
 
 return M

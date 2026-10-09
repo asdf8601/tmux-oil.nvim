@@ -66,3 +66,54 @@ with_nvim("buffer: visual block over the target column moves every pane", functi
   table.sort(after)
   eq(before, after)
 end)
+
+local function screen()
+  return tmux.run({ "capture-pane", "-p", "-t", "ui:" }) or ""
+end
+
+with_nvim("buffer: cic on the target cell moves the pane", function()
+  local before = panes("a")
+  type("j", "cic", "x:", "Escape")
+  write_and_wait("x")
+  eq({ before[1] }, panes("x"))
+end)
+
+with_nvim("buffer: Tab reaches the name cell", function()
+  type("j", "Tab", "cic", "renamed", "Escape", ":w", "Enter")
+  vim.wait(1000, function()
+    return tmux.run({ "display-message", "-p", "-t", "a:0", "#{window_name}" }) == "renamed"
+  end, 50)
+  eq("renamed", tmux.run({ "display-message", "-p", "-t", "a:0", "#{window_name}" }))
+end)
+
+with_nvim("buffer: o opens a line in the same window ready for a command", function()
+  type("j", "o", "echo $((40 + 2))-marker", "Escape", ":w", "Enter")
+  vim.wait(3000, function()
+    return #panes("a") == 3
+  end, 50)
+  eq(3, #panes("a"))
+  local found = vim.wait(3000, function()
+    for _, id in ipairs(panes("a")) do
+      if (tmux.run({ "capture-pane", "-p", "-t", id }) or ""):find("42%-marker") then
+        return true
+      end
+    end
+  end, 50)
+  eq(true, found)
+end)
+
+with_nvim("buffer: leaving insert realigns and the preview shows the plan", function()
+  type("j", "cic", "brand-new-session:", "Escape")
+  local lines = vim.split(screen(), "\n")
+  local header, edited = lines[1], lines[2]
+  eq(header:find("|", 1, true), edited:find("|", 1, true))
+  eq(true, edited:find("→ new session brand%-new%-session:") ~= nil)
+  type("j", "dd")
+  eq(true, screen():find("1 pane killed") ~= nil)
+end)
+
+with_nvim("buffer: one undo reverts the edit and the realignment", function()
+  local original = vim.split(screen(), "\n")[2]
+  type("j", "cic", "brand-new-session:", "Escape", "u")
+  eq(original, vim.split(screen(), "\n")[2])
+end)
