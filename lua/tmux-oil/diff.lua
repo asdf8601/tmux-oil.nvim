@@ -23,7 +23,8 @@ function M.compute(state, rows, ctx)
   end
 
   local function add_to_group(row, member)
-    local key = row.session .. ":" .. (row.index or "")
+    -- Each window line without an index is its own new window.
+    local key = row.session .. ":" .. (row.index or ("+" .. (row.window_lnum or "")))
     local g = by_key[key]
     if not g then
       g = { session = row.session, index = row.index, name = "", new_session = not state.sessions[row.session], members = {} }

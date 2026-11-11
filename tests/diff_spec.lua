@@ -1,16 +1,13 @@
 local h = dofile("tests/helpers.lua")
-local view = require("tmux-oil.view")
-local parse = require("tmux-oil.parse")
 local diff = require("tmux-oil.diff")
 
 local NO_CTX = { own = {} }
 
 -- Renders the state, lets edit change the lines, and diffs the result.
 local function run(state, edit, ctx)
-  local lines = view.render(state, h.config)
-  table.remove(lines, 1)
+  local lines = h.flat(state)
   lines = edit(lines) or lines
-  local rows = assert(parse.parse(lines, h.config.columns))
+  local rows = assert(h.rows(lines))
   return diff.compute(state, rows, ctx or NO_CTX)
 end
 
@@ -55,9 +52,9 @@ end)
 
 test("diff: unknown index creates one window per target", function()
   local plan = run(two_windows(), function(l)
-    l[1] = "%1 a:9 | code | | | nvim"
-    l[2] = "%2 a:9 | | | | zsh"
-    table.insert(l, "a: | scratch | | | htop")
+    l[1] = "%1 a:9 | code | nvim"
+    l[2] = "%2 a:9 | | zsh"
+    table.insert(l, "a: | scratch | htop")
   end)
   eq(2, #plan.groups)
   eq({ "code", 9, false }, { plan.groups[1].name, plan.groups[1].index, plan.groups[1].new_session })
@@ -68,7 +65,7 @@ end)
 
 test("diff: unknown session creates a session", function()
   local plan = run(two_windows(), function(l)
-    table.insert(l, "work: | shell | | | htop")
+    table.insert(l, "work: | shell | htop")
   end)
   eq(true, plan.groups[1].new_session)
   eq("shell", plan.groups[1].name)
@@ -83,7 +80,7 @@ end)
 
 test("diff: name of a moved line is ignored", function()
   local plan = run(two_windows(), function(l)
-    l[1] = "%1 a:2 | other | | | nvim"
+    l[1] = "%1 a:2 | other | nvim"
   end)
   eq({}, plan.renames)
   eq(1, #plan.moves)
@@ -91,7 +88,7 @@ end)
 
 test("diff: new line in existing window splits with its command", function()
   local plan = run(two_windows(), function(l)
-    table.insert(l, "a:2 | | | | tail -f log | grep x")
+    table.insert(l, "a:2 | | tail -f log | grep x")
   end)
   eq({ { window = "@a2", command = "tail -f log | grep x", cwd = "/tmp/a" } }, plan.splits)
 end)
@@ -106,7 +103,7 @@ end)
 
 test("diff: unknown id is an error", function()
   local plan, err = run(two_windows(), function(l)
-    l[1] = "%99 a:1 | | | | zsh"
+    l[1] = "%99 a:1 | | zsh"
   end)
   eq(nil, plan)
   eq(true, err:find("unknown pane") ~= nil)
@@ -114,7 +111,7 @@ end)
 
 test("diff: emptying the client session by moves follows the last moved pane", function()
   local plan = run(two_windows(), function()
-    return { "%1 b: | | | | nvim", "%2 b: | | | | zsh", "%3 b: | | | | k9s" }
+    return { "%1 b: | | nvim", "%2 b: | | zsh", "%3 b: | | k9s" }
   end, { own = {}, client_session = "a", client = "/dev/ttys001" })
   eq({ pane = "%3", client = "/dev/ttys001", session = "a", window = "@a1" }, plan.follow)
 end)

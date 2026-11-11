@@ -8,12 +8,10 @@ local edit = require("tmux-oil.edit")
 local M = {}
 
 M.config = {
-  columns = { "target", "name", "title", "cwd", "command" },
   max_width = { title = 30, cwd = 25 },
   confirm = "destructive",
   close_on_switch = false,
   command_alias = {},
-  header = true,
   socket = nil,
 }
 
@@ -25,14 +23,7 @@ local function notify(msg, level)
 end
 
 function M.setup(opts)
-  opts = opts or {}
-  M.config = vim.tbl_deep_extend("force", M.config, opts)
-  if opts.columns then
-    M.config.columns = opts.columns
-  end
-  local cols = M.config.columns
-  assert(vim.list_contains(cols, "target"), "tmux-oil: columns must include target")
-  assert(cols[#cols] == "command", "tmux-oil: command must be the last column")
+  M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   tmux.socket = M.config.socket
 end
 
@@ -74,19 +65,18 @@ local function render(buf)
   end
   snapshots[buf] = state
   contexts[buf] = context(state)
-  local lines, hls = view.render(state, M.config)
+  local lines = view.render(state, M.config)
   local undolevels = vim.bo[buf].undolevels
   vim.bo[buf].undolevels = -1
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
   vim.bo[buf].undolevels = undolevels
   vim.bo[buf].modified = false
-  edit.highlight(buf, hls)
   edit.preview(buf, nil)
 end
 
 local function write(buf)
   local state = snapshots[buf]
-  local rows, err = parse.parse(vim.api.nvim_buf_get_lines(buf, 0, -1, false), M.config.columns)
+  local rows, err = parse.parse(vim.api.nvim_buf_get_lines(buf, 0, -1, false))
   if not rows then
     return notify(err)
   end
@@ -119,12 +109,14 @@ local function write(buf)
 end
 
 local function jump(buf)
-  local id = parse.id(vim.api.nvim_get_current_line())
-  if not id then
+  local line = vim.api.nvim_get_current_line()
+  local id = parse.id(line)
+  local session = line:match("^%s*#%s*(.-)%s*$")
+  if not id and not session then
     return
   end
-  for _, cmd in ipairs({ "select-window", "select-pane", "switch-client" }) do
-    local _, err = tmux.run({ cmd, "-t", id })
+  for _, cmd in ipairs(id and { "select-window", "select-pane", "switch-client" } or { "switch-client" }) do
+    local _, err = tmux.run({ cmd, "-t", id or ("=" .. session) })
     if err then
       return notify(err)
     end
@@ -141,10 +133,15 @@ local function create()
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].swapfile = false
   vim.bo[buf].filetype = "tmux-oil"
+  vim.bo[buf].autoindent = true
+  vim.bo[buf].expandtab = true
+  vim.bo[buf].shiftwidth = 2
   vim.api.nvim_buf_call(buf, function()
-    vim.cmd([[syntax match TmuxOilId /^\s*%\d\+ / conceal]])
-    vim.cmd([[syntax match TmuxOilSep /|/]])
-    vim.cmd([[highlight default link TmuxOilSep NonText]])
+    vim.cmd([[syntax match TmuxOilId /^\s*\zs%\d\+ / conceal]])
+    vim.cmd([[syntax match TmuxOilSession /^\s*#.*/]])
+    vim.cmd([[syntax match TmuxOilWindow /^\s*\d*:.*/]])
+    vim.cmd([[highlight default link TmuxOilSession Title]])
+    vim.cmd([[highlight default link TmuxOilWindow Identifier]])
   end)
   vim.api.nvim_create_autocmd("BufWriteCmd", {
     buffer = buf,
@@ -153,7 +150,7 @@ local function create()
     end,
   })
   -- The id is concealed but still text; keep the cursor after it so edits at
-  -- the start of the line change the target, not the id.
+  -- the start of the line change the label, not the id.
   vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI", "ModeChanged" }, {
     buffer = buf,
     callback = function()
@@ -173,11 +170,11 @@ local function create()
   })
   vim.keymap.set("n", "<CR>", function()
     jump(buf)
-  end, { buffer = buf, desc = "tmux-oil: switch to pane" })
+  end, { buffer = buf, desc = "tmux-oil: switch to pane or session" })
   vim.keymap.set("n", "R", function()
     render(buf)
   end, { buffer = buf, desc = "tmux-oil: refresh" })
-  edit.attach(buf, M.config, function()
+  edit.attach(buf, function()
     return snapshots[buf], contexts[buf]
   end)
   return buf
@@ -193,6 +190,8 @@ function M.open(opts)
   vim.wo.conceallevel = 3
   vim.wo.concealcursor = "nvic"
   vim.wo.wrap = false
+  vim.wo.foldmethod = "indent"
+  vim.wo.foldlevel = 99
   vim.b[buf].tmux_oil_close = vim.F.if_nil(opts.close_on_switch, M.config.close_on_switch)
   render(buf)
 end
